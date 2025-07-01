@@ -1,4 +1,4 @@
-id,Tipo-costa,Altitud,Tipo-alttud,tipo-altitud-2,grupo_pob,NOMBRE COMPLETO,MUNICIPIO,PROVINCIA,CÓDIGO,ENTRADAS_2024,ENTRADAS_2019,pob_2024,tipo-pob,pob_2019,ENTRADASXHAB,ENTRADASXHAB_19,ENTRADASXTRAB,cnae-suma,VAR_ENTRADAS,recepcion_español_2024,recepcion_internacional_2024, ENTRADAS ext
+id,Tipo-costa,Altitud,Tipo-alttud,tipo-altitud-2,grupo_pob,NOMBRE COMPLETO,MUNICIPIO,PROVINCIA,CÓDIGO,ENTRADAS_2024,ENTRADAS_2019,pob_2024,tipo-pob,pob_2019,ENTRADASXHAB,ENTRADASXHAB_19,ENTRADASXTRAB,cnae-suma,VAR_ENTRADAS,recepcion_español_2024,recepcion_internacional_2024,ENTRADAS_ext
 814,yes,481,Menos de 1000 metros,201-600,101-500,07019 Escorca,Escorca,Illes Balears,07019,30772,19038,203,<500,212,"151,59","89,80","225,44","136,50","0,62",1477,29295,"4,80"
 4832,no,944,Menos de 1000 metros,601-1.000,1-100,31211 Orreaga/Roncesvalles,Orreaga/Roncesvalles,Navarra,31211,3117,3865,21,<500,22,"148,43","175,68","49,48","63,00","-0,19",1061,2056,"34,04"
 3104,no,892,Menos de 1000 metros,601-1.000,1-100,19288 Tortuero,Tortuero,Guadalajara,19288,2631,431,21,<500,18,"125,29","23,94","2631,00","1,00","5,10",2631,0,"100,00"
