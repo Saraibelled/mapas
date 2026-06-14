@@ -1,4 +1,4 @@
-console.log('test 03 - domain text fallback');
+console.log('test 03 - domain text fallback and clone selectors fixed');
 
 const data = {
   "formations": {
@@ -19,7 +19,7 @@ const data = {
       }
     },
     "4/2/3/1": {
-      "description": "El esquema 4/2/3/1, muy utilizado por Luis de la Fuente desde su etapa como seleccionador sub-21, es una evolución del clásico 4/3/3. La presencia de Pedri en la medular, junto a un mediocentro al uso, permite introducir en el esquema el concepto de mediapunta, un jugador que ejerza de enganche entre la sala de máquinas y el delantero, con capacidad para el último pase. Ahí encajan futbolistas como Dani Olmo, Álex Baena, Merino o incluso Gavi.",
+      "description": "El esquema 4/2/3/1, muy utilizado por Luis de la Fuente desde su etapa como seleccionador sub-21, es una evolución del clásico 4/3/3. La presencia de Pedri en la medular, junto a un mediocentro al uso, permite introducir en el esquema el concepto de mediapunta, un jugador que ejza de enganche entre la sala de máquinas y el delantero, con capacidad para el último pase. Ahí encajan futbolistas como Dani Olmo, Álex Baena, Merino o incluso Gavi.",
       "positions": {
         "portero": ["unai-simon", "raya", "joan-garcia"],
         "lateral-derecho": ["llorente", "porro"],
@@ -166,7 +166,7 @@ function initTuOnceIdeal() {
 
   if (!selectorItems.length || !selectedBlock || !popup) return;
 
-  // FUNCIÓN ACTUALIZADA: Busca el logo del periódico; si no existe, muestra el dominio en formato texto.
+  // FUNCIÓN ACTUALIZADA: Busca el logo; si no se encuentra, pinta el dominio en texto.
   function updateFooterLogo() {
     if (!footerLogo) return;
 
@@ -269,7 +269,7 @@ function initTuOnceIdeal() {
       activeDomain = window.location.hostname;
     }
 
-    // Añadir 'www.' si no lo tiene (excepto localhost/IPs)
+    // Añadir 'www.' si no lo tiene
     if (activeDomain && !activeDomain.startsWith('www.') && !activeDomain.includes('localhost') && !activeDomain.match(/^\d+\.\d+\.\d+\.\d+$/)) {
       activeDomain = 'www.' + activeDomain;
     }
@@ -457,6 +457,7 @@ function initTuOnceIdeal() {
           scale: 2,
           backgroundColor: '#ffffff',
           onclone: (clonedDocument) => {
+            // Buscamos el contenedor clonado directamente (el de la alineación)
             const clonedContainer = clonedDocument.querySelector('.v-n-toi-system');
             if (clonedContainer) {
               Object.assign(clonedContainer.style, {
@@ -469,81 +470,63 @@ function initTuOnceIdeal() {
                 padding: '20px 0px 120px',
                 backgroundColor: '#ffffff'
               });
-            }
 
-            const clonedBg = clonedDocument.querySelector('.v-n-toi-system__bg');
-            if (clonedBg) {
-              clonedBg.style.width = '600px';
-              clonedBg.style.height = '790px';
-            }
-
-            const clonedBgImg = clonedDocument.querySelector('.v-n-toi-system__bg img');
-            if (clonedBgImg) {
-              clonedBgImg.style.width = '490px';
-              clonedBgImg.style.height = '800px';
-            }
-
-            const clonedPlayersContainer = clonedDocument.querySelector('.v-n-toi-system__players');
-            if (clonedPlayersContainer) {
-              clonedPlayersContainer.style.width = '600px';
-              clonedPlayersContainer.style.height = '800px';
-              clonedPlayersContainer.style.marginTop = '12px';
-            }
-
-            clonedDocument
-              .querySelectorAll('.v-n-toi-selected .v-n-toi-player')
-              .forEach((player) => {
-                player.style.width = '90px';
-              });
-
-            clonedDocument
-              .querySelectorAll('.v-n-toi-selected .v-n-toi-player__name')
-              .forEach((pName) => {
-                pName.style.display = 'flex';
-                pName.style.alignItems = 'center';
-                pName.style.justifyContent = 'center';
-                pName.style.textAlign = 'center';
-                pName.style.paddingTop = '0px';
-                pName.style.paddingBottom = '10px';
-              });
-
-            const clonedFooter = clonedDocument.querySelector('.v-n-toi-selected .v-n-toi-system-footer');
-            if (clonedFooter) {
-              clonedFooter.style.display = 'block';
-            }
-
-            const clonedFooterLogo = clonedDocument.querySelector(
-              '.v-n-toi-selected .v-n-toi-system-footer__site img'
-            );
-            const clonedDomainSpan = clonedDocument.querySelector(
-              '.v-n-toi-selected .v-n-toi-system-footer__site-text'
-            );
-
-            // Ajustar estilos en el clon para el canvas
-            if (clonedFooterLogo) {
-              if (clonedFooterLogo.src && clonedFooterLogo.style.display !== 'none') {
-                Object.assign(clonedFooterLogo.style, {
-                  display: 'block',
-                  width: 'auto',
-                  height: '40px',
-                  margin: '12px auto 0',
-                  objectFit: 'contain'
+              // CORRECCIÓN DE SELECTORES: Buscamos dentro de clonedContainer para que no den null
+              clonedContainer
+                .querySelectorAll('.v-n-toi-player')
+                .forEach((player) => {
+                  player.style.width = '90px';
                 });
-                if (clonedDomainSpan) {
-                  clonedDomainSpan.style.display = 'none';
-                }
-              } else {
-                clonedFooterLogo.style.display = 'none';
-                if (clonedDomainSpan) {
-                  Object.assign(clonedDomainSpan.style, {
+
+              clonedContainer
+                .querySelectorAll('.v-n-toi-player__name')
+                .forEach((pName) => {
+                  pName.style.display = 'flex';
+                  pName.style.alignItems = 'center';
+                  pName.style.justifyContent = 'center';
+                  pName.style.textAlign = 'center';
+                  pName.style.paddingTop = '0px';
+                  pName.style.paddingBottom = '10px';
+                });
+
+              const clonedFooter = clonedContainer.querySelector('.v-n-toi-system-footer');
+              if (clonedFooter) {
+                clonedFooter.style.display = 'block';
+              }
+
+              const clonedFooterLogo = clonedContainer.querySelector(
+                '.v-n-toi-system-footer__site img'
+              );
+              const clonedDomainSpan = clonedContainer.querySelector(
+                '.v-n-toi-system-footer__site-text'
+              );
+
+              // Ajustar estilos en el clon para el canvas
+              if (clonedFooterLogo) {
+                if (clonedFooterLogo.src && clonedFooterLogo.style.display !== 'none') {
+                  Object.assign(clonedFooterLogo.style, {
                     display: 'block',
-                    textAlign: 'center',
-                    marginTop: '12px',
-                    fontSize: '20px',
-                    fontWeight: 'bold',
-                    fontFamily: '"PPLL Vocento Semibold", "ABC Display Semibold", serif',
-                    color: '#000000'
+                    width: 'auto',
+                    height: '40px',
+                    margin: '12px auto 0',
+                    objectFit: 'contain'
                   });
+                  if (clonedDomainSpan) {
+                    clonedDomainSpan.style.display = 'none';
+                  }
+                } else {
+                  clonedFooterLogo.style.display = 'none';
+                  if (clonedDomainSpan) {
+                    Object.assign(clonedDomainSpan.style, {
+                      display: 'block',
+                      textAlign: 'center',
+                      marginTop: '12px',
+                      fontSize: '20px',
+                      fontWeight: 'bold',
+                      fontFamily: '"PPLL Vocento Semibold", "ABC Display Semibold", serif',
+                      color: '#000000'
+                    });
+                  }
                 }
               }
             }
