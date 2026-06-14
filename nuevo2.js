@@ -1,4 +1,4 @@
-console.log('test 03 - fixed footer logo detection');
+console.log('test 03 - domain text fallback');
 
 const data = {
   "formations": {
@@ -102,7 +102,6 @@ const GENERAL_PLAYER_POSITIONS = {
 
 function convertSvgToPng(imgElement, targetHeight = 40) {
   return new Promise((resolve) => {
-    // Comprobar si el elemento tiene src y si es de tipo SVG o Base64 SVG
     if (!imgElement || !imgElement.src || (!imgElement.src.includes('.svg') && !imgElement.src.startsWith('data:image/svg+xml'))) {
       return resolve(); 
     }
@@ -167,27 +166,30 @@ function initTuOnceIdeal() {
 
   if (!selectorItems.length || !selectedBlock || !popup) return;
 
-  // NUEVA FUNCIÓN MEJORADA: Busca el logo del diario
+  // FUNCIÓN ACTUALIZADA: Busca el logo del periódico; si no existe, muestra el dominio en formato texto.
   function updateFooterLogo() {
     if (!footerLogo) return;
 
-    // Lista de selectores ordenados por prioridad para localizar el logo en cabecera/footer
+    let domainSpan = document.querySelector('.v-n-toi-system-footer__site-text');
+
     const selectors = [
-      '.v-f .v-log__i',          // Logo específico en el Footer corporativo (el de tu HTML)
-      '.v-h .v-log__i',          // Logo en la cabecera Vocento
-      '.v-log__i',               // Selector general de clase de logo (muy robusto)
+      '.v-f .v-log__i',          // Logo específico en el Footer corporativo (como el de tu HTML)
+      '.v-h .v-log__i',          // Logo en cabecera Vocento clásica
+      '.v-log__i',               // Selector general sin prefijo
       '.v-f .v-log img',
       '.v-h .v-log img',
       '.v-header-logo img',
       '.header__logo img',
       '.logo-abc img',
       'header .logo img',
-      'header svg',              // Si el logo está embebido directamente como svg
+      'header svg',
       '.v-logo img',
       '.v-logo svg'
     ];
 
     let foundLogo = null;
+
+    // 1. Buscar en el documento actual
     for (const selector of selectors) {
       const el = document.querySelector(selector);
       if (el) {
@@ -196,27 +198,87 @@ function initTuOnceIdeal() {
       }
     }
 
-    if (foundLogo) {
-      if (foundLogo.tagName.toLowerCase() === 'img') {
-        const src = foundLogo.src || foundLogo.getAttribute('data-src') || foundLogo.getAttribute('lazy-src');
-        if (src) {
-          footerLogo.src = src;
+    // 2. Si está en un iframe, intentar buscar en el parent
+    if (!foundLogo && window.parent && window.parent !== window) {
+      try {
+        for (const selector of selectors) {
+          const el = window.parent.document.querySelector(selector);
+          if (el) {
+            foundLogo = el;
+            break;
+          }
         }
+      } catch (e) {
+        // Bloqueado por CORS
+      }
+    }
+
+    // Si encontramos un logo válido
+    if (foundLogo) {
+      let src = '';
+      if (foundLogo.tagName.toLowerCase() === 'img') {
+        src = foundLogo.src || foundLogo.getAttribute('data-src') || foundLogo.getAttribute('lazy-src');
       } else if (foundLogo.tagName.toLowerCase() === 'svg' || foundLogo.querySelector('svg')) {
         const svgEl = foundLogo.tagName.toLowerCase() === 'svg' ? foundLogo : foundLogo.querySelector('svg');
         try {
           const s = new XMLSerializer();
           const str = s.serializeToString(svgEl);
-          // Convierte el SVG a un data URL base64 asignable a un img src
-          footerLogo.src = 'data:image/svg+xml;base64,' + window.btoa(unescape(encodeURIComponent(str)));
+          src = 'data:image/svg+xml;base64,' + window.btoa(unescape(encodeURIComponent(str)));
         } catch (e) {
           console.error("Error serializing SVG logo:", e);
         }
       }
+
+      if (src) {
+        footerLogo.src = src;
+        footerLogo.style.display = 'block';
+        if (domainSpan) {
+          domainSpan.style.display = 'none';
+        }
+        return; // Terminado con éxito
+      }
     }
+
+    // 3. SI NO SE ENCUENTRA EL LOGO: Ocultar imagen y crear/mostrar el dominio como texto
+    footerLogo.removeAttribute('src');
+    footerLogo.style.display = 'none';
+
+    if (!domainSpan) {
+      domainSpan = document.createElement('span');
+      domainSpan.className = 'v-n-toi-system-footer__site-text';
+      Object.assign(domainSpan.style, {
+        display: 'block',
+        textAlign: 'center',
+        marginTop: '12px',
+        fontSize: '18px',
+        fontWeight: 'bold',
+        fontFamily: '"PPLL Vocento Semibold", "ABC Display Semibold", serif',
+        color: '#000000'
+      });
+      footerLogo.parentNode.appendChild(domainSpan);
+    }
+
+    // Obtener el dominio del parent/referrer o local
+    let activeDomain = '';
+    if (document.referrer) {
+      try {
+        activeDomain = new URL(document.referrer).hostname;
+      } catch (e) {}
+    }
+    if (!activeDomain) {
+      activeDomain = window.location.hostname;
+    }
+
+    // Añadir 'www.' si no lo tiene (excepto localhost/IPs)
+    if (activeDomain && !activeDomain.startsWith('www.') && !activeDomain.includes('localhost') && !activeDomain.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+      activeDomain = 'www.' + activeDomain;
+    }
+
+    domainSpan.textContent = activeDomain || 'www.eldiariomontanes.es';
+    domainSpan.style.display = 'block';
   }
 
-  // Intentamos cargarlo la primera vez al inicializar
+  // Ejecutamos la búsqueda al iniciar
   updateFooterLogo();
 
   selectorItems.forEach((btn) => {
@@ -371,7 +433,7 @@ function initTuOnceIdeal() {
       downloadBtn.style.pointerEvents = 'none';
 
       try {
-        // Volvemos a buscar el logo del diario justo antes de exportar
+        // Volvemos a sincronizar antes de clonar el DOM para la captura
         updateFooterLogo();
 
         if (footerLogo && footerLogo.src) {
@@ -453,14 +515,37 @@ function initTuOnceIdeal() {
             const clonedFooterLogo = clonedDocument.querySelector(
               '.v-n-toi-selected .v-n-toi-system-footer__site img'
             );
+            const clonedDomainSpan = clonedDocument.querySelector(
+              '.v-n-toi-selected .v-n-toi-system-footer__site-text'
+            );
+
+            // Ajustar estilos en el clon para el canvas
             if (clonedFooterLogo) {
-              Object.assign(clonedFooterLogo.style, {
-                display: 'block',
-                width: 'auto',
-                height: '40px',
-                margin: '12px auto 0',
-                objectFit: 'contain'
-              });
+              if (clonedFooterLogo.src && clonedFooterLogo.style.display !== 'none') {
+                Object.assign(clonedFooterLogo.style, {
+                  display: 'block',
+                  width: 'auto',
+                  height: '40px',
+                  margin: '12px auto 0',
+                  objectFit: 'contain'
+                });
+                if (clonedDomainSpan) {
+                  clonedDomainSpan.style.display = 'none';
+                }
+              } else {
+                clonedFooterLogo.style.display = 'none';
+                if (clonedDomainSpan) {
+                  Object.assign(clonedDomainSpan.style, {
+                    display: 'block',
+                    textAlign: 'center',
+                    marginTop: '12px',
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    fontFamily: '"PPLL Vocento Semibold", "ABC Display Semibold", serif',
+                    color: '#000000'
+                  });
+                }
+              }
             }
           }
         });
