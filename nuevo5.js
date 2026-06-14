@@ -1,4 +1,4 @@
-console.log('test 03 - fixed overlap via JS dynamically');
+console.log('test 03 - fixed overlap with original footer positioning');
 const data = {
   "formations": {
     "4/3/3": {
@@ -388,14 +388,15 @@ function initTuOnceIdeal() {
           onclone: (clonedDocument) => {
             const clonedContainer = clonedDocument.querySelector('.v-n-toi-system');
             if (clonedContainer) {
+              // Restauramos el tamaño original de la imagen final (920px de alto con 120px de padding inferior)
               Object.assign(clonedContainer.style, {
                 width: '600px',
-                height: '960px',
+                height: '920px',
                 containerType: 'unset',
                 maxHeight: 'unset',
                 aspectRatio: 'unset',
                 maxWidth: 'unset',
-                padding: '20px 0px 160px',
+                padding: '20px 0px 120px',
                 backgroundColor: '#ffffff'
               });
               clonedContainer
@@ -403,19 +404,18 @@ function initTuOnceIdeal() {
                 .forEach((player) => {
                   player.style.width = '90px';
                 });
-              // RECOLOCACIÓN DE DELANTEROS SOLO EN LA FOTO DE DESCARGA:
-              // Forzamos un 'top' del 68% en la imagen final para los delanteros del esquema seleccionado,
-              // evitando que colisionen con el pie de foto.
+              // REPOSICIONAMIENTO SUTIL (73% en vez del 77% original)
+              // Ajusta a los delanteros solo en la imagen para evitar colisión con el pie de foto
               const currentSystem = document.querySelector('.v-n-toi-selector__item.is-active')?.getAttribute('data-system');
               if (currentSystem === '4/3/3') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--09, .v-n-toi-player--10, .v-n-toi-player--11')
-                  .forEach(el => el.style.top = '68%');
+                  .forEach(el => el.style.top = '73%');
               } else if (currentSystem === '4/2/3/1') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--11')
-                  .forEach(el => el.style.top = '68%');
+                  .forEach(el => el.style.top = '73%');
               } else if (currentSystem === '4/4/2') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--10, .v-n-toi-player--11')
-                  .forEach(el => el.style.top = '68%');
+                  .forEach(el => el.style.top = '73%');
               }
               clonedContainer
                 .querySelectorAll('.v-n-toi-player__name')
@@ -427,28 +427,30 @@ function initTuOnceIdeal() {
                   pName.style.paddingTop = '0px';
                   pName.style.paddingBottom = '10px';
                 });
+              // Restauramos el alto del campo táctico a sus 790px originales
               const clonedBg = clonedContainer.querySelector('.v-n-toi-system__bg');
               if (clonedBg) {
                 clonedBg.style.width = '600px';
-                clonedBg.style.height = '780px';
+                clonedBg.style.height = '790px';
               }
               const clonedBgImg = clonedContainer.querySelector('.v-n-toi-system__bg img');
               if (clonedBgImg) {
                 clonedBgImg.style.width = '490px';
-                clonedBgImg.style.height = '790px';
+                clonedBgImg.style.height = '800px';
               }
               const clonedPlayersContainer = clonedContainer.querySelector('.v-n-toi-system__players');
               if (clonedPlayersContainer) {
                 clonedPlayersContainer.style.width = '600px';
-                clonedPlayersContainer.style.height = '780px';
+                clonedPlayersContainer.style.height = '800px';
                 clonedPlayersContainer.style.marginTop = '12px';
               }
               const clonedFooter = clonedContainer.querySelector('.v-n-toi-system-footer');
               if (clonedFooter) {
                 clonedFooter.style.display = 'block';
+                // Dejamos el pie de foto exactamente en su posición CSS por defecto (bottom: 30px)
                 Object.assign(clonedFooter.style, {
                   position: 'absolute',
-                  bottom: '15px',
+                  bottom: '30px', 
                   left: '50%',
                   transform: 'translateX(-50%)'
                 });
