@@ -474,7 +474,7 @@ function initTuOnceIdeal() {
                   .forEach(el => el.style.top = '75%');
               } else if (currentSystem === '4/2/3/1') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--11')
-                  .forEach(el => el.style.top = '75%');
+                  .forEach(el => el.style.top = '77%');
               } else if (currentSystem === '4/4/2') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--10, .v-n-toi-player--11')
                   .forEach(el => el.style.top = '75%');
