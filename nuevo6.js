@@ -471,13 +471,13 @@ function initTuOnceIdeal() {
               const currentSystem = document.querySelector('.v-n-toi-selector__item.is-active')?.getAttribute('data-system');
               if (currentSystem === '4/3/3') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--09, .v-n-toi-player--10, .v-n-toi-player--11')
-                  .forEach(el => el.style.top = '73%');
+                  .forEach(el => el.style.top = '75%');
               } else if (currentSystem === '4/2/3/1') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--11')
-                  .forEach(el => el.style.top = '73%');
+                  .forEach(el => el.style.top = '75%');
               } else if (currentSystem === '4/4/2') {
                 clonedContainer.querySelectorAll('.v-n-toi-player--10, .v-n-toi-player--11')
-                  .forEach(el => el.style.top = '73%');
+                  .forEach(el => el.style.top = '75%');
               }
 
               clonedContainer
