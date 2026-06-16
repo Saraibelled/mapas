@@ -1,597 +1,849 @@
+(() => {
+    const vocCsvUrl = 'https://raw.githubusercontent.com/Saraibelled/mapas/refs/heads/main/bolsas-t.csv';
 
-console.log('test 03 - fixed logo detection');
-const data = {
-"formations": {
-"4/3/3": {
-"description": "El sistema 4/3/3 es el verdadero ADN de la selección española, un dibujo táctico que ha sabido evolucionar desde el clásico ‘tiki-taka’ de posesión infinita hacia un fútbol moderno, vertical y eléctrico gracias al desborde desde los carriles. Anclado en un centro del campo con un pivote inteligente que equilibra el bloque y complementado hoy por extremos puros de puro desborde, este esquema permite a La Roja adueñarse del ritmo del partido sin renunciar a la pegada ni a una presión tras pérdida asfixiante. En resumen: es la fórmula perfecta donde el control técnico se encuentra con el dinamismo actual.",
-"positions": {
-"portero": ["unai-simon", "raya", "joan-garcia"],
-"lateral-derecho": ["llorente", "porro"],
-"central-derecho": ["cubarsi", "pubill"],
-"central-izquierdo": ["laporte", "eric-garcia"],
-"lateral-izquierdo": ["cucurella", "grimaldo"],
-"interior-derecho": ["pedri", "merino", "dani-olmo"],
-"pivote": ["rodri", "zubimendi"],
-"interior-izquierdo": ["fabian", "gavi", "baena"],
-"extremo-derecho": ["yamal", "yeremy"],
-"delantero-centro": ["ferran", "oyarzabal", "iglesias"],
-"extremo-izquierdo": ["nico", "victor-munoz"]
+
+    const vocZoomConfig = {
+        desktop: {
+            zoom: 1.40,   
+            xOffset: 0,
+            yOffset: 0
+        },
+        mobile: {
+            zoom: 2.45,   
+            xOffset: 0,
+            yOffset: -45  
+        }
+    };
+
+    let vocAnimationTween = null;
+    let stepObserver = null; 
+
+    const vocColorByMeta = {
+        'Autoridades y Cargos Públicos': '#C90022',
+        'Beneficiarios Finales': '#135AE1',
+        'Empresas Instrumentales': '#058896',
+        'Gestores de la Trama': '#2197FF',
+        'Intermediarios y Testaferros': '#9852D9',
+        'Origen de los fondos': '#F6821F',
+        'Otros': '#6B6B6B'
+    };
+
+    const vocNormalize = (value) => String(value || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    const vocParseDelimited = (text, delimiter) => {
+        const rows = [];
+        let row = [];
+        let field = '';
+        let insideQuotes = false;
+
+        for (let index = 0; index < text.length; index += 1) {
+            const char = text[index];
+            const nextChar = text[index + 1];
+
+            if (char === '"' && insideQuotes && nextChar === '"') {
+                field += '"';
+                index += 1;
+                continue;
+            }
+
+            if (char === '"') {
+                insideQuotes = !insideQuotes;
+                continue;
+            }
+
+            if (char === delimiter && !insideQuotes) {
+                row.push(field);
+                field = '';
+                continue;
+            }
+
+            if ((char === '\n' || char === '\r') && !insideQuotes) {
+                if (char === '\r' && nextChar === '\n') {
+                    index += 1;
+                }
+
+                row.push(field);
+
+                if (row.some((cell) => String(cell).trim() !== '')) {
+                    rows.push(row);
+                }
+
+                row = [];
+                field = '';
+                continue;
+            }
+
+            field += char;
+        }
+
+        if (field || row.length) {
+            row.push(field);
+
+            if (row.some((cell) => String(cell).trim() !== '')) {
+                rows.push(row);
+            }
+        }
+
+        return rows;
+    };
+
+    const vocGetDelimiter = (text) => {
+        const firstLine = String(text || '').split(/\r?\n/)[0] || '';
+        const tabs = (firstLine.match(/\t/g) || []).length;
+        const commas = (firstLine.match(/,/g) || []).length;
+
+        return tabs >= commas ? '\t' : ',';
+    };
+
+    const vocGetNodeData = async () => {
+        const response = await fetch(vocCsvUrl);
+        const text = await response.text();
+        const delimiter = vocGetDelimiter(text);
+        const rows = vocParseDelimited(text, delimiter);
+
+        rows.shift();
+
+        const nodeDataBySvgId = new Map();
+
+        rows.forEach((row) => {
+            const nodeNumRaw = String(row[1] || '').trim();
+            const nodeName = String(row[2] || '').trim();
+
+            if (!nodeNumRaw || !nodeName) {
+                return;
+            }
+
+            const nodeNum = nodeNumRaw.replace(/^node-/, '');
+
+            const nodeData = {
+                id: String(row[0] || '').trim(),
+                nodeNum,
+                node: nodeName,
+                localImage: String(row[3] || '').trim(),
+                remoteImage: String(row[4] || '').trim(),
+                title: String(row[5] || row[2] || '').trim(),
+                text: String(row[6] || '').trim(),
+                meta: String(row[9] || row[8] || '').trim()
+            };
+
+            nodeDataBySvgId.set(nodeNumRaw, nodeData);
+            nodeDataBySvgId.set(nodeNum, nodeData);
+            nodeDataBySvgId.set(`node-${nodeNum}`, nodeData);
+        });
+
+        return nodeDataBySvgId;
+    };
+
+    const vocCreateTooltip = (container) => {
+        let tooltip = container.querySelector('.voc-node-tooltip');
+
+        if (tooltip) {
+            tooltip.setAttribute('role', 'dialog');
+            tooltip.setAttribute('aria-live', 'polite');
+            tooltip.setAttribute('aria-hidden', 'true');
+            return tooltip;
+        }
+
+        tooltip = document.createElement('div');
+        tooltip.className = 'voc-node-tooltip';
+        tooltip.setAttribute('role', 'dialog');
+        tooltip.setAttribute('aria-live', 'polite');
+        tooltip.setAttribute('aria-hidden', 'true');
+
+        tooltip.innerHTML = `
+            <button class="voc-node-tooltip__close" type="button" aria-label="Cerrar ficha">×</button>
+            <div class="voc-node-tooltip__media" aria-hidden="true">
+                <img class="voc-node-tooltip__image" alt="">
+            </div>
+            <h3 class="voc-node-tooltip__title"></h3>
+            <p class="voc-node-tooltip__group"></p>
+            <p class="voc-node-tooltip__text"></p>
+            <p class="voc-node-tooltip__meta"></p>
+        `;
+
+        container.appendChild(tooltip);
+        return tooltip;
+    };
+
+    const vocCreateFixedLabel = (container) => {
+        let label = container.querySelector('.voc-node-fixed-label');
+
+        if (label) {
+            label.hidden = true;
+            label.setAttribute('aria-hidden', 'true');
+            return label;
+        }
+
+        label = document.createElement('div');
+        label.className = 'voc-node-fixed-label';
+        label.hidden = true;
+        label.setAttribute('aria-hidden', 'true');
+
+        container.appendChild(label);
+        return label;
+    };
+
+    const vocApplyNodeData = (graphic, nodeDataBySvgId) => {
+            graphic.querySelectorAll('.voc-node-image').forEach(img => {
+        img.removeAttribute('clip-path');
+    });
+        const svgNodes = graphic.querySelectorAll('.voc-node-item');
+
+        svgNodes.forEach((svgNode) => {
+            const svgId = svgNode.id;
+            const cleanId = svgId.replace(/^node-/, '');
+            const nodeData = nodeDataBySvgId.get(svgId) || nodeDataBySvgId.get(cleanId);
+
+            if (!nodeData) {
+                return;
+            }
+
+            const image = nodeData.remoteImage || nodeData.localImage;
+            const nodeColor = vocColorByMeta[nodeData.meta];
+            const svgCircle = svgNode.querySelector('.voc-node-circle');
+            const svgImage = svgNode.querySelector('.voc-node-image');
+
+            svgNode.dataset.vocId = nodeData.id;
+            svgNode.dataset.vocNode = nodeData.node;
+            svgNode.dataset.vocTitle = nodeData.title;
+            svgNode.dataset.vocText = nodeData.text;
+            svgNode.dataset.vocMeta = nodeData.meta;
+            svgNode.dataset.vocImage = image;
+
+            if (svgCircle && nodeColor) {
+                svgCircle.style.fill = nodeColor;
+            }
+
+            svgNode.setAttribute('aria-label', `${nodeData.title}. ${nodeData.meta}`);
+
+           if (svgImage) {
+    svgImage.setAttribute('width', '14');
+    svgImage.setAttribute('height', '14');
+    svgImage.setAttribute('x', '-7');
+    svgImage.setAttribute('y', '-7');
+
+    if (image) {
+        svgImage.setAttribute('href', image);
+        svgImage.setAttributeNS('http://www.w3.org/1999/xlink', 'href', image);
+    }
 }
-},
-"4/2/3/1": {
-"description": "El esquema 4/2/3/1, muy utilizado por Luis de la Fuente desde su etapa como seleccionador sub-21, es una evolución del clásico 4/3/3. La presencia de Pedri en la medular, junto a un mediocentro al uso, permite introducir en el esquema el concepto de mediapunta, un jugador que ejerza de enganche entre la sala de máquinas y el delantero, con capacidad para el último pase. Ahí encajan futbolistas como Dani Olmo, Álex Baena, Merino o incluso Gavi.",
-"positions": {
-"portero": ["unai-simon", "raya", "joan-garcia"],
-"lateral-derecho": ["llorente", "porro"],
-"central-derecho": ["cubarsi", "pubill"],
-"central-izquierdo": ["laporte", "eric-garcia"],
-"lateral-izquierdo": ["cucurella", "grimaldo"],
-"centro-derecho": ["pedri", "merino", "gavi"],
-"centro-izquierdo": ["rodri", "zubimendi", "fabian"],
-"extremo-derecho": ["yamal", "yeremy"],
-"mediapunta": ["dani-olmo", "baena"],
-"extremo-izquierdo": ["nico", "victor-munoz"],
-"delantero-centro": ["ferran", "oyarzabal", "iglesias"]
+        });
+    };
+
+    const vocGetLinkNames = (link) => {
+        const raw = String(link.dataset.id || '').replace(/^link-line-/, '');
+        const parts = raw.split('--');
+
+        return {
+            source: String(parts[0] || '').trim(),
+            target: String(parts[1] || '').trim()
+        };
+    };
+
+    const vocBuildRelations = (graphic) => {
+        const links = Array.from(graphic.querySelectorAll('.voc-link-item'));
+        const nodes = Array.from(graphic.querySelectorAll('.voc-node-item'));
+        const nodeByName = new Map();
+        const relationsByNodeName = new Map();
+
+        nodes.forEach((node) => {
+            const name = node.dataset.vocNode || node.getAttribute('aria-label') || '';
+            const key = vocNormalize(name);
+
+            nodeByName.set(key, node);
+            relationsByNodeName.set(key, {
+                links: [],
+                related: new Set()
+            });
+        });
+
+        links.forEach((link) => {
+            const names = vocGetLinkNames(link);
+            const sourceKey = vocNormalize(names.source);
+            const targetKey = vocNormalize(names.target);
+
+            if (!relationsByNodeName.has(sourceKey)) {
+                relationsByNodeName.set(sourceKey, { links: [], related: new Set() });
+            }
+            if (!relationsByNodeName.has(targetKey)) {
+                relationsByNodeName.set(targetKey, { links: [], related: new Set() });
+            }
+
+            relationsByNodeName.get(sourceKey).links.push(link);
+            relationsByNodeName.get(sourceKey).related.add(targetKey);
+            relationsByNodeName.get(targetKey).links.push(link);
+            relationsByNodeName.get(targetKey).related.add(sourceKey);
+        });
+
+        return { links, nodes, nodeByName, relationsByNodeName };
+    };
+
+    const vocGetSvgBaseViewBox = (graphic) => {
+        if (!graphic.dataset.vocBaseViewBox) {
+            if (!graphic.getAttribute('viewBox')) {
+                const width = Number(graphic.getAttribute('width')) || 1195;
+                const height = Number(graphic.getAttribute('height')) || 1195;
+                graphic.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            }
+            graphic.dataset.vocBaseViewBox = graphic.getAttribute('viewBox');
+        }
+
+        const values = graphic.dataset.vocBaseViewBox.split(/\s+/).map(Number);
+        return {
+            x: values[0] || 0,
+            y: values[1] || 0,
+            width: values[2] || 1195,
+            height: values[3] || 1195
+        };
+    };
+
+    const vocGetNodePoint = (node) => {
+        const transform = node.getAttribute('transform') || '';
+        const match = transform.match(/translate\(([-\d.]+)[,\s]+([-\d.]+)\)/);
+
+        return {
+            x: match ? Number(match[1]) : 0,
+            y: match ? Number(match[2]) : 0
+        };
+    };
+
+    const vocGetZoomSettings = (step) => {
+        const isMobile = window.matchMedia('(max-width: 699px)').matches;
+        const base = isMobile ? vocZoomConfig.mobile : vocZoomConfig.desktop;
+
+        const rawZoom = isMobile ? step?.dataset.zoomMovil : step?.dataset.zoomDesktop;
+        const zoomFromHtml = Number(rawZoom);
+
+        return {
+            zoom: Number.isFinite(zoomFromHtml) && zoomFromHtml > 0 ? zoomFromHtml : base.zoom,
+            xOffset: base.xOffset,
+            yOffset: base.yOffset
+        };
+    };
+
+
+    const vocZoomToNode = (graphic, node, step) => {
+        const base = vocGetSvgBaseViewBox(graphic);
+        const point = vocGetNodePoint(node);
+        const settings = vocGetZoomSettings(step);
+        
+        const zoom = Math.max(1, settings.zoom);
+        const width = base.width / zoom;
+        const height = base.height / zoom;
+        
+        const minX = base.x;
+        const minY = base.y;
+        const maxX = base.x + base.width - width;
+        const maxY = base.y + base.height - height;
+        
+        const targetX = Math.min(Math.max(point.x - width / 2 + settings.xOffset, minX), maxX);
+        const targetY = Math.min(Math.max(point.y - height / 2 + settings.yOffset, minY), maxY);
+
+        if (vocAnimationTween) cancelAnimationFrame(vocAnimationTween);
+
+        const currentViewBox = graphic.getAttribute('viewBox').split(/\s+/).map(Number);
+        let curX = currentViewBox[0];
+        let curY = currentViewBox[1];
+        let curW = currentViewBox[2];
+        let curH = currentViewBox[3];
+
+        const easeFactor = 0.08; 
+
+        const animateCamera = () => {
+            curX += (targetX - curX) * easeFactor;
+            curY += (targetY - curY) * easeFactor;
+            curW += (width - curW) * easeFactor;
+            curH += (height - curH) * easeFactor;
+
+            graphic.setAttribute('viewBox', `${curX} ${curY} ${curW} ${curH}`);
+
+            if (Math.abs(targetX - curX) > 0.1 || Math.abs(width - curW) > 0.1) {
+                vocAnimationTween = requestAnimationFrame(animateCamera);
+            }
+        };
+
+        vocAnimationTween = requestAnimationFrame(animateCamera);
+    };
+
+    const vocSetTooltipContent = (tooltip, node) => {
+        const image = tooltip.querySelector('.voc-node-tooltip__image');
+        const media = tooltip.querySelector('.voc-node-tooltip__media');
+        const title = tooltip.querySelector('.voc-node-tooltip__title');
+        const group = tooltip.querySelector('.voc-node-tooltip__group');
+        const text = tooltip.querySelector('.voc-node-tooltip__text');
+        const meta = tooltip.querySelector('.voc-node-tooltip__meta');
+
+        title.textContent = node.dataset.vocTitle || node.dataset.vocNode || '';
+        group.textContent = node.dataset.vocMeta || '';
+        text.textContent = node.dataset.vocText || '';
+        meta.textContent = node.dataset.vocNode || '';
+
+        if (node.dataset.vocImage) {
+            image.src = node.dataset.vocImage;
+            image.alt = '';
+            media.hidden = false;
+        } else {
+            image.removeAttribute('src');
+            media.hidden = true;
+        }
+    };
+
+    const vocPositionTooltip = (tooltip, node, container) => {
+        const containerRect = container.getBoundingClientRect();
+        const nodeRect = node.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const left = nodeRect.left - containerRect.left + nodeRect.width / 2 + 18;
+        const top = nodeRect.top - containerRect.top + nodeRect.height / 2 + 18;
+        const maxLeft = Math.max(12, containerRect.width - tooltipRect.width - 12);
+        const maxTop = Math.max(12, containerRect.height - tooltipRect.height - 12);
+
+        tooltip.style.left = `${Math.min(Math.max(12, left), maxLeft)}px`;
+        tooltip.style.top = `${Math.min(Math.max(12, top), maxTop)}px`;
+    };
+
+    const vocPositionFixedLabel = (label, node, container) => {
+        if (!node || label.hidden) {
+            return;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        const nodeRect = node.getBoundingClientRect();
+        const left = nodeRect.left - containerRect.left + nodeRect.width / 2;
+        const top = nodeRect.top - containerRect.top;
+
+        label.style.left = `${left}px`;
+        label.style.top = `${top}px`;
+    };
+
+    const vocShowFixedLabel = ({ label, node, container }) => {
+        if (!node) {
+            label.hidden = true;
+            label.textContent = '';
+            return;
+        }
+
+        label.textContent = node.dataset.vocTitle || node.dataset.vocNode || node.getAttribute('aria-label') || '';
+        label.hidden = false;
+
+        requestAnimationFrame(() => {
+            vocPositionFixedLabel(label, node, container);
+        });
+    };
+
+    const vocHideFixedLabel = (label) => {
+        label.hidden = true;
+        label.textContent = '';
+    };
+
+    const vocClearState = (nodes, links) => {
+        nodes.forEach((node) => {
+            node.classList.remove('voc-is-story-active', 'voc-is-story-related', 'voc-is-story-muted', 'voc-has-tooltip-open');
+        });
+
+        links.forEach((link) => {
+            link.classList.remove('voc-is-story-active', 'voc-is-story-muted');
+        });
+    };
+
+    const vocHighlightNodeRelations = ({ node, nodes, links, nodeByName, relationsByNodeName }) => {
+        const nodeKey = vocNormalize(node.dataset.vocNode || node.getAttribute('aria-label'));
+        const relation = relationsByNodeName.get(nodeKey);
+
+        vocClearState(nodes, links);
+        node.classList.add('voc-is-story-active');
+
+        nodes.forEach((item) => {
+            if (item !== node) item.classList.add('voc-is-story-muted');
+        });
+
+        links.forEach((link) => {
+            link.classList.add('voc-is-story-muted');
+        });
+
+        if (!relation) return;
+
+        relation.links.forEach((link) => {
+            link.classList.add('voc-is-story-active');
+            link.classList.remove('voc-is-story-muted');
+        });
+
+        relation.related.forEach((relatedKey) => {
+            const relatedNode = nodeByName.get(relatedKey);
+            if (relatedNode) {
+                relatedNode.classList.add('voc-is-story-related');
+                relatedNode.classList.remove('voc-is-story-muted');
+            }
+        });
+    };
+
+    const vocActivateNode = ({ graphic, node, step, tooltip, container, fixedLabel, labelNode, nodes, links, nodeByName, relationsByNodeName, showTooltip }) => {
+        const nodeKey = vocNormalize(node.dataset.vocNode || node.getAttribute('aria-label'));
+        const relation = relationsByNodeName.get(nodeKey);
+
+        vocClearState(nodes, links);
+        vocZoomToNode(graphic, node, step);
+
+        if (labelNode) {
+            vocShowFixedLabel({ label: fixedLabel, node: labelNode, container });
+        } else {
+            vocHideFixedLabel(fixedLabel);
+        }
+
+        node.classList.add('voc-is-story-active');
+        if (showTooltip) node.classList.add('voc-has-tooltip-open');
+
+        nodes.forEach((item) => {
+            if (item !== node) item.classList.add('voc-is-story-muted');
+        });
+
+        links.forEach((link) => {
+            link.classList.add('voc-is-story-muted');
+        });
+
+        if (relation) {
+            relation.links.forEach((link) => {
+                link.classList.add('voc-is-story-active');
+                link.classList.remove('voc-is-story-muted');
+            });
+
+            relation.related.forEach((relatedKey) => {
+                const relatedNode = nodeByName.get(relatedKey);
+                if (relatedNode) {
+                    relatedNode.classList.add('voc-is-story-related');
+                    relatedNode.classList.remove('voc-is-story-muted');
+                }
+            });
+        }
+
+        if (showTooltip) {
+            vocSetTooltipContent(tooltip, node);
+            tooltip.classList.add('voc-is-visible');
+            tooltip.setAttribute('aria-hidden', 'false');
+            vocPositionTooltip(tooltip, node, container);
+        } else {
+            tooltip.classList.remove('voc-is-visible');
+            tooltip.setAttribute('aria-hidden', 'true');
+        }
+    };
+
+    const vocCloseTooltip = ({ tooltip, nodes }) => {
+        tooltip.classList.remove('voc-is-visible');
+        tooltip.setAttribute('aria-hidden', 'true');
+        nodes.forEach((node) => {
+            node.classList.remove('voc-has-tooltip-open');
+        });
+    };
+
+    const vocCreateProgressDots = (steps) => {
+        const progress = document.getElementById('voc-scroll-progress');
+        if (!progress) return [];
+        progress.innerHTML = '';
+
+        return steps.map((step, index) => {
+            const dot = document.createElement('span');
+            dot.className = 'voc-scroll__progress-dot';
+            dot.setAttribute('aria-hidden', 'true');
+            if (index === 0) dot.classList.add('voc-is-active');
+            progress.appendChild(dot);
+            return dot;
+        });
+    };
+
+    const vocSetActiveStep = (steps, dots, activeIndex) => {
+        steps.forEach((step, index) => {
+            step.classList.toggle('voc-is-active', index === activeIndex);
+        });
+        dots.forEach((dot, index) => {
+            dot.classList.toggle('voc-is-active', index === activeIndex);
+        });
+    };
+
+    const vocBindInteractions = ({ graphic, container, tooltip, fixedLabel, nodes, links, nodeByName, relationsByNodeName }) => {
+        let activeNode = null;
+        let activeNodeStep = null;
+        let activeStepIndex = -1;
+        let isFreeMode = false;
+
+        const nodeById = new Map();
+        const steps = Array.from(document.querySelectorAll('.voc-scroll__step'));
+        const dots = vocCreateProgressDots(steps);
+
+        nodes.forEach((node) => {
+            nodeById.set(node.id, node);
+        });
+
+        const getLabelNodeFromStep = (step) => {
+            if (!step?.dataset.labelNode) return null;
+            return nodeById.get(step.dataset.labelNode) || null;
+        };
+
+        const activate = ({ node, step = null, showTooltip = false }) => {
+            const labelNode = showTooltip ? null : getLabelNodeFromStep(step);
+            activeNode = node;
+            activeNodeStep = step;
+
+            vocActivateNode({
+                graphic, node, step, tooltip, container, fixedLabel, labelNode,
+                nodes, links, nodeByName, relationsByNodeName, showTooltip
+            });
+        };
+
+        const restoreActiveState = () => {
+            if (tooltip.classList.contains('voc-is-visible') && activeNode) {
+                activate({ node: activeNode, step: activeNodeStep, showTooltip: true });
+                return;
+            }
+
+            const activeStep = steps[activeStepIndex] || null;
+            const stepNode = activeStep?.dataset.vocFocus ? nodeById.get(activeStep.dataset.vocFocus) : null;
+
+            if (stepNode) {
+                activate({ node: stepNode, step: activeStep, showTooltip: false });
+                return;
+            }
+
+            vocClearState(nodes, links);
+        };
+
+        nodes.forEach((node) => {
+            node.addEventListener('mouseenter', () => {
+                if (!isFreeMode) return;
+                vocHighlightNodeRelations({ node, nodes, links, nodeByName, relationsByNodeName });
+            });
+
+            node.addEventListener('mouseleave', () => { 
+                if (!isFreeMode) return;
+                restoreActiveState(); 
+            });
+        
+            
+            node.addEventListener('click', (event) => {
+                if (!isFreeMode) return;
+                event.stopPropagation();
+                activate({ node, step: null, showTooltip: true });
+            });
+
+            node.addEventListener('keydown', (event) => {
+                if (!isFreeMode) return;
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                activate({ node, step: null, showTooltip: true });
+            });
+        });
+
+        const setupObserver = () => {
+
+    stepObserver = new IntersectionObserver((entries) => {
+        if (isFreeMode) return;
+
+
+        const viewportMid = window.innerHeight / 2;
+
+        let closestStep = null;
+        let closestDist = Infinity;
+
+        steps.forEach((step) => {
+            const rect = step.getBoundingClientRect();
+
+            if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+
+            const stepMid = rect.top + rect.height / 2;
+            const dist = Math.abs(stepMid - viewportMid);
+
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestStep = step;
+            }
+        });
+
+        if (!closestStep) return;
+
+        const stepIndex = steps.indexOf(closestStep);
+        if (stepIndex === activeStepIndex) return;
+
+const nodeId = closestStep.dataset.vocFocus;
+const node = nodeId ? nodeById.get(nodeId) : null;
+
+activeStepIndex = stepIndex;
+vocSetActiveStep(steps, dots, stepIndex);
+
+if (!node) {
+    // Step de vista general: limpia highlights y resetea zoom al viewBox original
+    vocClearState(nodes, links);
+    vocHideFixedLabel(fixedLabel);
+    tooltip.classList.remove('voc-is-visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+    activeNode = null;
+    activeNodeStep = null;
+
+    const base = vocGetSvgBaseViewBox(graphic);
+    if (vocAnimationTween) cancelAnimationFrame(vocAnimationTween);
+
+    const currentViewBox = graphic.getAttribute('viewBox').split(/\s+/).map(Number);
+    let curX = currentViewBox[0];
+    let curY = currentViewBox[1];
+    let curW = currentViewBox[2];
+    let curH = currentViewBox[3];
+
+    const animateReset = () => {
+        curX += (base.x - curX) * 0.08;
+        curY += (base.y - curY) * 0.08;
+        curW += (base.width - curW) * 0.08;
+        curH += (base.height - curH) * 0.08;
+        graphic.setAttribute('viewBox', `${curX} ${curY} ${curW} ${curH}`);
+        if (Math.abs(base.width - curW) > 0.1) {
+            vocAnimationTween = requestAnimationFrame(animateReset);
+        }
+    };
+    vocAnimationTween = requestAnimationFrame(animateReset);
+    return;
 }
-},
-"4/4/2": {
-"description": "Aunque menos habitual, pues reduce el papel de los extremos, con Lamine Yamal y Nico Williams como estandartes de esta selección española, el dibujo táctico 4/4/2 puede ser una variante útil para determinados partidos o momentos de los mismos. Así, esta opción permite poblar el centro del campo para incrementar todavía más el dominio de los partidos desde el control del balón, un rasgo característico de España, así como introducir dos delanteros en la ecuación, cuando sea necesario redoblar la amenaza ofensiva frente a adversarios muy replegados.",
-"positions": {
-"portero": ["unai-simon", "raya", "joan-garcia"],
-"lateral-derecho": ["llorente", "porro"],
-"central-derecho": ["cubarsi", "pubill"],
-"central-izquierdo": ["laporte", "eric-garcia"],
-"lateral-izquierdo": ["cucurella", "grimaldo"],
-"extremo-derecho": ["yamal", "yeremy", "baena"],
-"centro-derecho": ["pedri", "merino", "gavi"],
-"centro-izquierdo": ["rodri", "zubimendi", "fabian"],
-"extremo-izquierdo": ["nico", "victor-munoz"],
-"delantero-derecho": ["ferran", "iglesias"],
-"delantero-izquierdo": ["oyarzabal", "dani-olmo"]
-}
-}
-},
-"players": {
-"baena": { "name": "Baena", "team": "Atlético", "age": "24 años", "caps": "17 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/baena.png" },
-"cubarsi": { "name": "Cubarsí", "team": "Barcelona", "age": "19 años", "caps": "12 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/cubarsi.png" },
-"cucurella": { "name": "Cucurella", "team": "Chelsea", "age": "27 años", "caps": "24 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/cucurella.png" },
-"dani-olmo": { "name": "Dani Olmo", "team": "Barcelona", "age": "28 años", "caps": "50 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/olmo.png" },
-"eric-garcia": { "name": "Eric García", "team": "Barcelona", "age": "25 años", "caps": "21 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/eric.png" },
-"fabian": { "name": "Fabián", "team": "PSG", "age": "30 años", "caps": "42 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/fabian.png" },
-"ferran": { "name": "Ferran", "team": "Barcelona", "age": "26 años", "caps": "57 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/torres.png" },
-"gavi": { "name": "Gavi", "team": "Barcelona", "age": "21 años", "caps": "30 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/gavi.png" },
-"grimaldo": { "name": "Grimaldo", "team": "Bayer Leverkusen", "age": "30 años", "caps": "14 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/grimaldo.png" },
-"iglesias": { "name": "Iglesias", "team": "Celta", "age": "33 años", "caps": "8 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/iglesias.png" },
-"joan-garcia": { "name": "Joan García", "team": "Barcelona", "age": "25 años", "caps": "2 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/garcia.png" },
-"yamal": { "name": "Yamal", "team": "Barcelona", "age": "18 años", "caps": "25 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/yamal.png" },
-"laporte": { "name": "Laporte", "team": "Athletic", "age": "32 años", "caps": "46 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/laporte.png" },
-"llorente": { "name": "Llorente", "team": "Atlético", "age": "31 años", "caps": "24 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/llorente.png" },
-"merino": { "name": "Merino", "team": "Arsenal", "age": "29 años", "caps": "43 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/merino.png" },
-"nico": { "name": "Nico", "team": "Athletic", "age": "23 años", "caps": "30 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/williams.png" },
-"oyarzabal": { "name": "Oyarzabal", "team": "Real Sociedad", "age": "29 años", "caps": "53 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/oyarzabal.png" },
-"pedri": { "name": "Pedri", "team": "Barcelona", "age": "23 años", "caps": "41 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/pedri.png" },
-"porro": { "name": "Porro", "team": "Tottenham", "age": "26 años", "caps": "18 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/porro.png" },
-"pubill": { "name": "Pubill", "team": "Atlético", "age": "22 años", "caps": "2 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/pubill.png" },
-"raya": { "name": "Raya", "team": "Arsenal", "age": "30 años", "caps": "13 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/raya.png" },
-"rodri": { "name": "Rodri", "team": "Manchester City", "age": "29 años", "caps": "62 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/rodri.png" },
-"unai-simon": { "name": "Unai Simón", "team": "Athletic", "age": "29 años", "caps": "58 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/unai.png" },
-"victor-munoz": { "name": "Víctor Muñoz", "team": "Osasuna", "age": "22 años", "caps": "2 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/munoz.png" },
-"yeremy": { "name": "Yéremy", "team": "Crystal Palace", "age": "23 años", "caps": "23 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/pino.png" },
-"zubimendi": { "name": "Zubimendi", "team": "Arsenal", "age": "27 años", "caps": "26 internacionalidades", "image": "https://s1.ppllstatics.com/comun/img/2026/seleccion/zubimendi.png" }
-}
+
+activate({ node, step: closestStep, showTooltip: false });
+
+    }, {
+        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1.0]
+    });
+
+    steps.forEach((step) => {
+        stepObserver.observe(step);
+        step.addEventListener('focus', () => {
+            if (isFreeMode) return;
+            const node = nodeById.get(step.dataset.vocFocus);
+            if (!node) return;
+            const stepIndex = steps.indexOf(step);
+            activeStepIndex = stepIndex;
+            vocSetActiveStep(steps, dots, stepIndex);
+            activate({ node, step, showTooltip: false });
+        });
+    });
 };
-const GENERAL_PLAYER_POSITIONS = {
-'portero': 'portero',
-'lateral-derecho': 'interior',
-'central-derecho': 'interior',
-'central-izquierdo': 'interior',
-'lateral-izquierdo': 'interior',
-'interior-derecho': 'centro',
-'pivote': 'centro',
-'interior-izquierdo': 'centro',
-'centro-derecho': 'centro',
-'centro-izquierdo': 'centro',
-'mediapunta': 'centro',
-'extremo-derecho': 'centro',
-'delantero-centro': 'delantero',
-'extremo-izquierdo': 'centro',
-'delantero-derecho': 'delantero',
-'delantero-izquierdo': 'delantero'
-};
-function convertSvgToPng(imgElement, targetHeight = 40) {
-return new Promise((resolve) => {
-// Mejorado: Comprueba si es un archivo .svg o si tiene datos en Base64 (data:image/svg+xml)
-if (!imgElement || (!imgElement.src.includes('.svg') && !imgElement.src.startsWith('data:image/svg+xml'))) {
-return resolve(); 
-}
-const tempImg = new Image();
-tempImg.crossOrigin = 'anonymous';
-tempImg.src = imgElement.src;
-tempImg.onload = function () {
-const originalWidth = tempImg.naturalWidth || tempImg.width || 160;
-const originalHeight = tempImg.naturalHeight || tempImg.height || 40;
-const aspectRatio = originalWidth / originalHeight;
-const targetWidth = Math.round(targetHeight * aspectRatio);
-const ghostCanvas = document.createElement('canvas');
-ghostCanvas.width = targetWidth;
-ghostCanvas.height = targetHeight;
-const ctx = ghostCanvas.getContext('2d');
-ctx.clearRect(0, 0, targetWidth, targetHeight);
-ctx.drawImage(tempImg, 0, 0, targetWidth, targetHeight);
-try {
-imgElement.src = ghostCanvas.toDataURL('image/png');
-} catch (err) {
-console.error("Error rasterizing SVG to PNG:", err);
-}
-resolve();
-};
-tempImg.onerror = function() {
-resolve();
-};
-});
-}
-function initTuOnceIdeal() {
-const selectorItems = document.querySelectorAll('.v-n-toi-selector__item');
-const selectedBlock = document.querySelector('.v-n-toi-selected');
-const systemLabel = document.querySelector('[data-system-label]');
-const systemDescription = document.querySelector('[data-system-description]');
-const systemContainer = document.querySelector('.v-n-toi-system');
-const systemBgImg = document.querySelector('.v-n-toi-system__bg img');
-const playersContainer = document.querySelector('.v-n-toi-system__players');
-const popup = document.querySelector('.v-n-toi-popup');
-const popupPlayerType = popup?.querySelector('[data-player-type]');
-const popupPlayersList = popup?.querySelector('.v-n-toi-popup__players-list');
-const popupCloseBtn = popup?.querySelector('.v-n-toi-popup__close');
-const downloadBlock = document.querySelector('.v-n-toi-download');
-const downloadBtn = downloadBlock?.querySelector('.v-n-toi-download-btn');
-const resetBtn = downloadBlock?.querySelector('.v-n-toi-reset-btn');
-const nextStepBlock = document.querySelector('.v-n-toi-next-step');
-const footerLogo = document.querySelector('.v-n-toi-system-footer__site img');
-let activePlayerButton = null;
-let checkScrollSpeed = null;
-if (!selectorItems.length || !selectedBlock || !popup) return;
-// Función robusta para buscar el logo en la página (tanto tags img como svg inline)
-function updateFooterLogo() {
-if (!footerLogo) return;
-const selectors = [
-'.v-h .v-log__i', // Selector por defecto de Vocento (imagen o svg)
-'.v-h .v-log img',
-'.v-h img.v-log__i',
-'.v-header-logo img',
-'.header__logo img',
-'.logo-abc img',
-'header .logo img',
-'header svg', // Si el logo está embebido directamente como svg
-'.v-logo img',
-'.v-logo svg'
-];
-let foundLogo = null;
-for (const selector of selectors) {
-const el = document.querySelector(selector);
-if (el) {
-foundLogo = el;
-break;
-}
-}
-if (foundLogo) {
-if (foundLogo.tagName.toLowerCase() === 'img') {
-const src = foundLogo.src || foundLogo.getAttribute('data-src') || foundLogo.getAttribute('lazy-src');
-if (src) {
-footerLogo.src = src;
-}
-} else if (foundLogo.tagName.toLowerCase() === 'svg' || foundLogo.querySelector('svg')) {
-const svgEl = foundLogo.tagName.toLowerCase() === 'svg' ? foundLogo : foundLogo.querySelector('svg');
-try {
-const s = new XMLSerializer();
-const str = s.serializeToString(svgEl);
-// Convierte el SVG a un data URL base64 asignable a un img src
-footerLogo.src = 'data:image/svg+xml;base64,' + window.btoa(unescape(encodeURIComponent(str)));
-} catch (e) {
-console.error("Error serializing SVG logo:", e);
-}
-}
-}
-}
-// Intentamos cargarlo la primera vez al inicializar
-updateFooterLogo();
-selectorItems.forEach((btn) => {
-btn.addEventListener('click', () => {
-selectorItems.forEach(i => i.classList.remove('is-active'));
-btn.classList.add('is-active');
-const system = btn.getAttribute('data-system');
-const systemData = data.formations[system];
-if (!systemData) return;
-const systemClassForCss = system.replace(/\//g, '-');
-systemLabel.textContent = system;
-systemDescription.textContent = systemData.description;
-if (systemBgImg) systemBgImg.setAttribute('alt', `Esquema táctico ${system}`);
-systemContainer.className = 'v-n-toi-system'; 
-systemContainer.classList.add(`v-n-toi-system--${systemClassForCss}`);
-closePopup();
-generatePlayers(systemData.positions, playersContainer, system);
-if (nextStepBlock) {
-nextStepBlock.classList.add('is-hidden');
-}
-selectedBlock.classList.remove('is-visible');
-selectedBlock.classList.add('is-active');
-if (downloadBlock) {
-downloadBlock.classList.add('is-active');
-}
-setTimeout(() => { 
-selectedBlock.classList.add('is-visible'); 
-const selectedBlockTop = selectedBlock.getBoundingClientRect().top + window.scrollY;
-window.scrollTo({
-top: selectedBlockTop,
-behavior: 'smooth'
-});
-}, 50);
-});
-});
-playersContainer.addEventListener('click', (e) => {
-const playerBtn = e.target.closest('.v-n-toi-player');
-if (!playerBtn) return;
-e.stopPropagation();
-clearInterval(checkScrollSpeed);
-const isAnotherPopupOpen = popup.classList.contains('is-active') && activePlayerButton !== playerBtn;
-document.querySelectorAll('.v-n-toi-player').forEach(p => {
-p.classList.remove('is-active');
-p.setAttribute('aria-expanded', 'false');
-});
-playerBtn.classList.add('is-active');
-playerBtn.setAttribute('aria-expanded', 'true');
-activePlayerButton = playerBtn;
-const positionKey = playerBtn.getAttribute('data-player-position');
-const currentSystem = document.querySelector('.v-n-toi-selector__item.is-active')?.getAttribute('data-system');
-if (!positionKey || !currentSystem) return;
-const playersIds = data.formations[currentSystem]?.positions[positionKey] || [];
-openPopup(positionKey, playersIds);
-if (systemContainer) {
-const headerElement = document.querySelector('.v-h--t3');
-const headerHeight = headerElement ? headerElement.offsetHeight : 0;
-const systemTop = systemContainer.getBoundingClientRect().top + window.scrollY;
-const systemHeight = systemContainer.offsetHeight;
-const windowHeight = window.innerHeight;
-const targetScrollY = systemTop - (windowHeight / 2) + (systemHeight / 2) - (headerHeight / 2);
-window.scrollTo({
-top: targetScrollY,
-behavior: 'smooth'
-});
-}
-requestAnimationFrame(() => {
-placePopup(playerBtn);
-popup.classList.add('is-visible');
-});
-if (!isAnotherPopupOpen) {
-checkScrollSpeed = setInterval(() => {
-placePopup(playerBtn);
-}, 16);
-setTimeout(() => {
-clearInterval(checkScrollSpeed);
-placePopup(playerBtn);
-}, 350);
-}
-});
-if (popupCloseBtn) popupCloseBtn.addEventListener('click', closePopup);
-document.addEventListener('click', (e) => {
-if (!popup.classList.contains('is-active')) return;
-if (!popup.contains(e.target) && !e.target.closest('.v-n-toi-player')) {
-closePopup();
-}
-});
-document.addEventListener('keydown', (e) => {
-if (e.key === 'Escape' && popup.classList.contains('is-active')) {
-closePopup();
-}
-});
-window.addEventListener('resize', () => {
-if (popup.classList.contains('is-active') && activePlayerButton) {
-placePopup(activePlayerButton);
-}
-});
-if (downloadBtn) {
-downloadBtn.addEventListener('click', async (e) => {
-const totalPlayersSelected = document.querySelectorAll('.v-n-toi-player').length;
-const playersCompleted = document.querySelectorAll('.v-n-toi-player[data-selected-player-id]').length;
-const leftPlayersToSelect = totalPlayersSelected - playersCompleted;
-if (leftPlayersToSelect > 0) {
-e.preventDefault();
-showErrorMessage(
-`Te faltan ${leftPlayersToSelect} ${
-leftPlayersToSelect === 1 ? 'jugador' : 'jugadores'
-} para descargar tu once ideal`
-);
-return;
-}
-if (!systemContainer) return;
-const isIOS =
-/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-(navigator.platform === 'MacIntel' &&
-navigator.maxTouchPoints > 1);
-const originalText = downloadBtn.innerHTML;
-downloadBtn.innerHTML = '<span>Generando imagen...</span>';
-downloadBtn.style.pointerEvents = 'none';
-try {
-// Buscamos el logo una vez más justo antes de exportar
-updateFooterLogo();
-if (footerLogo && footerLogo.src) {
-await convertSvgToPng(footerLogo, 40);
-}
-if (!window.html2canvas) {
-await new Promise((resolve, reject) => {
-const script = document.createElement('script');
-script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
-script.async = true;
-script.onload = resolve;
-script.onerror = reject;
-document.head.appendChild(script);
-});
-}
-const canvas = await window.html2canvas(systemContainer, {
-useCORS: true,
-allowTaint: false,
-scale: 2,
-backgroundColor: '#ffffff',
-onclone: (clonedDocument) => {
-const clonedContainer = clonedDocument.querySelector('.v-n-toi-system');
-if (clonedContainer) {
-Object.assign(clonedContainer.style, {
-width: '600px',
-height: '920px',
-containerType: 'unset',
-maxHeight: 'unset',
-aspectRatio: 'unset',
-maxWidth: 'unset',
-padding: '20px 0px 120px',
-backgroundColor: '#ffffff'
-});
-}
-const clonedBg = clonedDocument.querySelector('.v-n-toi-system__bg');
-if (clonedBg) {
-clonedBg.style.width = '600px';
-clonedBg.style.height = '790px';
-}
-const clonedBgImg = clonedDocument.querySelector('.v-n-toi-system__bg img');
-if (clonedBgImg) {
-clonedBgImg.style.width = '490px';
-clonedBgImg.style.height = '800px';
-}
-const clonedPlayersContainer = clonedDocument.querySelector('.v-n-toi-system__players');
-if (clonedPlayersContainer) {
-clonedPlayersContainer.style.width = '600px';
-clonedPlayersContainer.style.height = '800px';
-clonedPlayersContainer.style.marginTop = '12px';
-}
-clonedDocument
-.querySelectorAll('.v-n-toi-selected .v-n-toi-player')
-.forEach((player) => {
-player.style.width = '90px';
-});
-clonedDocument
-.querySelectorAll('.v-n-toi-selected .v-n-toi-player__name')
-.forEach((pName) => {
-pName.style.display = 'flex';
-pName.style.alignItems = 'center';
-pName.style.justifyContent = 'center';
-pName.style.textAlign = 'center';
-pName.style.paddingTop = '0px';
-pName.style.paddingBottom = '10px';
-});
-const clonedFooter = clonedDocument.querySelector('.v-n-toi-selected .v-n-toi-system-footer');
-if (clonedFooter) {
-clonedFooter.style.display = 'block';
-}
-const clonedFooterLogo = clonedDocument.querySelector(
-'.v-n-toi-selected .v-n-toi-system-footer__site img'
-);
-if (clonedFooterLogo) {
-Object.assign(clonedFooterLogo.style, {
-display: 'block',
-width: 'auto',
-height: '40px',
-margin: '12px auto 0',
-objectFit: 'contain'
-});
-}
-}
-});
-const uniqueHash = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
-const blob = await new Promise((resolve) => {
-canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85);
-});
-if (!blob) {
-throw new Error('No se pudo generar el blob');
-}
-const blobUrl = URL.createObjectURL(blob);
-if (isIOS) {
-window.location.href = blobUrl;
-setTimeout(() => {
-URL.revokeObjectURL(blobUrl);
-}, 30000);
-} else {
-const downloadLink = document.createElement('a');
-downloadLink.href = blobUrl;
-downloadLink.download = `mi-once-ideal-${uniqueHash}.jpg`;
-document.body.appendChild(downloadLink);
-downloadLink.click();
-document.body.removeChild(downloadLink);
-setTimeout(() => {
-URL.revokeObjectURL(blobUrl);
-}, 1000);
-}
-} catch (error) {
-console.error('Error al generar la imagen:', error);
-} finally {
-downloadBtn.innerHTML = originalText;
-downloadBtn.style.pointerEvents = '';
-}
-});
-}
-if (resetBtn) {
-resetBtn.addEventListener('click', () => {
-closePopup();
-document.querySelectorAll('.v-n-toi-player').forEach(player => {
-player.removeAttribute('data-selected-player-id');
-const img = player.querySelector('img');
-const type = player.getAttribute('data-player-type') || 'centro';
-if (img) {
-img.src = `https://s1.abcstatics.com/comun/narrativas/redaccion/2026/06/15/tu-once-ideal/images/toi-icon-${type}.webp`;
-img.alt = '';
-}
-const nameSpan = player.querySelector('.v-n-toi-player__name');
-if (nameSpan) nameSpan.textContent = '';
-});
-selectorItems.forEach(i => i.classList.remove('is-active'));
-if (nextStepBlock) nextStepBlock.classList.remove('is-hidden');
-selectedBlock.classList.remove('is-active', 'is-visible');
-if (downloadBlock) downloadBlock.classList.remove('is-active');
-const firstSelector = selectorItems[0];
-if (firstSelector) {
-firstSelector.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-});
-}
-function openPopup(positionKey, playersIds) {
-popupPlayerType.textContent = positionKey.replace(/-/g, ' ');
-popupPlayersList.innerHTML = '';
-playersIds.forEach((id) => {
-const playerData = data.players[id];
-if (!playerData) return;
-const li = document.createElement('li');
-const button = document.createElement('button');
-button.type = 'button';
-button.className = 'v-n-toi-popup__player';
-button.setAttribute('data-player-img-url', playerData.image);
-if (activePlayerButton?.getAttribute('data-selected-player-id') === id) {
-button.classList.add('is-active');
-}
-button.innerHTML = `
-<div class="v-n-toi-popup__player-img-c">
-<img src="${playerData.image}" alt="${playerData.name}" class="v-n-toi-popup__player-img">
-</div>
-<div class="v-n-toi-popup__player-info">
-<span class="v-n-toi-popup__player-name">${playerData.name}</span>
-<span class="v-n-toi-popup__player-team">${playerData.team}</span>
-<span class="v-n-toi-popup__player-age">${playerData.age}</span>
-<span class="v-n-toi-popup__player-inter">${playerData.caps}</span>
-</div>
-`;
-const img = button.querySelector('.v-n-toi-popup__player-img');
-if (img) {
-if (img.complete) img.classList.add('is-loaded');
-else img.addEventListener('load', () => img.classList.add('is-loaded'));
-}
-button.addEventListener('click', () => {
-selectPlayerForButton(id, playerData.image, playerData.name);
-});
-li.appendChild(button);
-popupPlayersList.appendChild(li);
-});
-popup.classList.add('is-active');
-const firstInteractive = popupPlayersList.querySelector('.v-n-toi-popup__player') || popupCloseBtn;
-if (firstInteractive) firstInteractive.focus({ preventScroll: true }); 
-}
-function placePopup(targetBtn) {
-if (window.innerWidth < 699) {
-Object.assign(popup.style, { position: '', top: '', left: '' });
-return;
-}
-popup.style.position = 'absolute';
-const gap = 10;
-const targetRect = targetBtn.getBoundingClientRect();
-const popupRect = popup.getBoundingClientRect();
-const containerRect = systemContainer.getBoundingClientRect();
-let topOffset = (targetRect.top - containerRect.top) + (targetRect.height / 2) - (popupRect.height / 2);
-let leftOffset = (targetRect.left - containerRect.left) + targetRect.width + gap;
-if ((targetRect.left + targetRect.width + gap + popupRect.width) > window.innerWidth) {
-leftOffset = (targetRect.left - containerRect.left) - popupRect.width - gap;
-}
-if (leftOffset < 0) leftOffset = gap;
-if ((containerRect.top + topOffset + popupRect.height) > window.innerHeight) {
-topOffset = (targetRect.bottom - containerRect.top) - popupRect.height;
-}
-if (containerRect.top + topOffset < 0) {
-topOffset = (targetRect.top - containerRect.top);
-}
-popup.style.top = `${topOffset}px`;
-popup.style.left = `${leftOffset}px`;
-}
-function closePopup() {
-if (!popup.classList.contains('is-active')) return;
-clearInterval(checkScrollSpeed);
-popup.classList.remove('is-visible');
-setTimeout(() => {
-popup.classList.remove('is-active');
-popup.style.left = '';
-popup.style.top = '';
-}, 250);
-if (activePlayerButton) {
-activePlayerButton.classList.remove('is-active');
-activePlayerButton.setAttribute('aria-expanded', 'false');
-activePlayerButton.focus({ preventScroll: true });
-activePlayerButton = null;
-}
-}
-function selectPlayerForButton(id, imageUrl, name) {
-if (!activePlayerButton) return;
-const playerImgElement = activePlayerButton.querySelector('img');
-if (playerImgElement) {
-playerImgElement.src = imageUrl;
-playerImgElement.alt = `Foto de ${name}`;
-}
-const playerNameElement = activePlayerButton.querySelector('.v-n-toi-player__name');
-if (playerNameElement) {
-playerNameElement.textContent = name;
-}
-activePlayerButton.setAttribute('data-selected-player-id', id);
-closePopup();
-}
-function showErrorMessage(texto) {
-const alertContainer = document.createElement('div');
-alertContainer.className = 'v-n-toi-alert-toast';
-alertContainer.textContent = texto;
-document.body.appendChild(alertContainer);
-requestAnimationFrame(() => alertContainer.classList.add('is-visible'));
-setTimeout(() => {
-alertContainer.classList.remove('is-visible');
-alertContainer.addEventListener('transitionend', function handler(e) {
-if (e.propertyName === 'transform' || e.propertyName === 'opacity') {
-alertContainer.removeEventListener('transitionend', handler);
-alertContainer.remove();
-}
-});
-}, 3000);
-}
-}
-function generatePlayers(positions, container, currentSystem) {
-container.innerHTML = '';
-let playerIndex = 1;
-for (const positionKey in positions) {
-if (Object.prototype.hasOwnProperty.call(positions, positionKey)) {
-let positionGeneral = GENERAL_PLAYER_POSITIONS[positionKey] || 'centro';
-if (currentSystem === '4/3/3' && (positionKey === 'extremo-derecho' || positionKey === 'extremo-izquierdo')) {
-positionGeneral = 'delantero';
-}
-const classIndex = String(playerIndex).padStart(2, '0');
-const button = document.createElement('button');
-button.type = 'button';
-button.className = `v-n-toi-player v-n-toi-player--${classIndex}`;
-button.setAttribute('data-player-type', positionGeneral);
-button.setAttribute('data-player-position', positionKey);
-button.setAttribute('aria-label', `Seleccionar ${positionKey}`);
-button.setAttribute('aria-expanded', 'false');
-const img = document.createElement('img');
-img.src = `https://s1.abcstatics.com/comun/narrativas/redaccion/2026/06/15/tu-once-ideal/images/toi-icon-${positionGeneral}.webp`;
-img.alt = '';
-const nameSpan = document.createElement('span');
-nameSpan.className = 'v-n-toi-player__name';
-button.appendChild(img);
-button.appendChild(nameSpan);
-container.appendChild(button);
-playerIndex++;
-}
-}
-}
-function initAll() {
-initTuOnceIdeal();
-}
-initAll();
+
+        if (steps.length) {
+            setupObserver();
+        }
+
+
+        const freeModeBtn = document.getElementById('voc-btn-free-mode');
+        const mainContainer = document.getElementById('voc-scroll');
+
+        if (freeModeBtn && mainContainer) {
+            freeModeBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                isFreeMode = !isFreeMode;
+
+                if (isFreeMode) {
+                    mainContainer.classList.add('voc-is-free-mode');
+                    freeModeBtn.textContent = 'Volver a la historia';
+                    freeModeBtn.style.background = '#202020';
+                    
+
+                    if (stepObserver) {
+                        steps.forEach(step => stepObserver.unobserve(step));
+                    }
+                } else {
+                    mainContainer.classList.remove('voc-is-free-mode');
+                    freeModeBtn.textContent = 'Explorar grafo libremente';
+                    freeModeBtn.style.background = '';
+                    
+                    vocCloseTooltip({ tooltip, nodes });
+                    
+
+                    if (stepObserver) {
+                        steps.forEach(step => stepObserver.observe(step));
+                    }
+                    restoreActiveState();
+                }
+            });
+        }
+
+        const closeButton = tooltip.querySelector('.voc-node-tooltip__close');
+        if (closeButton) {
+            closeButton.addEventListener('click', () => {
+                vocCloseTooltip({ tooltip, nodes });
+                restoreActiveState();
+            });
+        }
+
+        document.addEventListener('click', (event) => {
+            if (!tooltip.classList.contains('voc-is-visible')) return;
+            if (tooltip.contains(event.target) || event.target.closest('.voc-node-item')) return;
+            vocCloseTooltip({ tooltip, nodes });
+            restoreActiveState();
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
+            if (!tooltip.classList.contains('voc-is-visible')) return;
+            vocCloseTooltip({ tooltip, nodes });
+            restoreActiveState();
+        });
+
+        window.addEventListener('resize', () => {
+            if (!activeNode) return;
+            const labelNode = tooltip.classList.contains('voc-is-visible') ? null : getLabelNodeFromStep(activeNodeStep);
+
+            vocZoomToNode(graphic, activeNode, activeNodeStep);
+
+            if (labelNode) {
+                vocShowFixedLabel({ label: fixedLabel, node: labelNode, container });
+            } else {
+                vocHideFixedLabel(fixedLabel);
+            }
+
+            if (tooltip.classList.contains('voc-is-visible')) {
+                vocPositionTooltip(tooltip, activeNode, container);
+            }
+        }, { passive: true });
+
+        window.addEventListener('scroll', () => {
+            const labelNode = tooltip.classList.contains('voc-is-visible') ? null : getLabelNodeFromStep(activeNodeStep);
+
+            if (labelNode) vocPositionFixedLabel(fixedLabel, labelNode, container);
+            if (activeNode && tooltip.classList.contains('voc-is-visible')) {
+                vocPositionTooltip(tooltip, activeNode, container);
+            }
+        }, { passive: true });
+
+        graphic.dataset.vocReady = 'true';
+    };
+
+    const vocInit = async () => {
+        const graphic = document.getElementById('graphic');
+        if (!graphic || graphic.dataset.vocReady === 'true') return;
+
+        const container = graphic.closest('.voc-scroll__graphic-wrap') || graphic.parentElement;
+        if (!container) return;
+
+        try {
+            const tooltip = vocCreateTooltip(container);
+            const fixedLabel = vocCreateFixedLabel(container);
+            const nodeDataBySvgId = await vocGetNodeData();
+
+            vocGetSvgBaseViewBox(graphic);
+            vocApplyNodeData(graphic, nodeDataBySvgId);
+
+            const relations = vocBuildRelations(graphic);
+
+            vocBindInteractions({
+                graphic, container, tooltip, fixedLabel,
+                nodes: relations.nodes,
+                links: relations.links,
+                nodeByName: relations.nodeByName,
+                relationsByNodeName: relations.relationsByNodeName
+            });
+        } catch (error) {
+            console.warn('No se pudo inicializar el gráfico.', error);
+        }
+    };
+
+    if (document.getElementById('graphic')) {
+        vocInit();
+    } else {
+        document.addEventListener('DOMContentLoaded', vocInit, { once: true });
+    }
+})();
