@@ -1,1 +1,50 @@
-{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[-2.244869,39.394884]}},{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[-0.19679,44.49241]}},{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[0.698902,49.570778]}}]}
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "marker-color": "#312E81",
+        "marker-size": "large",
+        "marker-symbol": "3"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -2.2448692,
+          39.3948838
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "marker-color": "#312E81",
+        "marker-size": "medium",
+        "marker-symbol": "2"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -0.1967897,
+          44.4924101
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "marker-color": "#312E81",
+        "marker-size": "medium",
+        "marker-symbol": "1"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          0.6989017,
+          49.5707776
+        ]
+      }
+    }
+  ]
+}
